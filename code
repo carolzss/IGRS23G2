@@ -1,0 +1,289 @@
+/*
+ * $Id: EchoServlet.java,v 1.5 2003/06/22 12:32:15 fukuda Exp $
+ */
+package org.mobicents.servlet.sip.example;
+
+import java.util.*;
+import java.io.IOException;
+
+import javax.servlet.sip.SipServlet;    
+import javax.servlet.sip.SipServletRequest;
+import javax.servlet.sip.SipServletResponse;
+import javax.servlet.ServletException;
+import javax.servlet.sip.URI;
+import javax.servlet.sip.Proxy;
+import javax.servlet.sip.SipFactory;
+import javax.sip.header.HeaderFactory;
+import javax.servlet.sip.*;
+import javax.servlet.ServletException;
+import javax.servlet.sip.*;
+import java.io.IOException;
+
+
+/**
+ */
+public class Myapp extends SipServlet {
+
+    /**
+     * 
+     */
+    private static final long serialVersionUID = 1L;
+    static private Map<String, String> RegistrarDB;
+    static private Map<String, String> Conferencia;
+    static private Map<String, String> Ocupado;
+    private SipFactory factory;
+    // Mapa para armazenar o status de ocupa\u00e7\u00e3o (busy) dos usu\u00e1rios
+    static private Map<String, String> userEmChamada;
+
+
+    public Myapp() {
+        super();
+        RegistrarDB = new HashMap<String,String>();
+        Conferencia = new HashMap<String,String>();
+        userEmChamada = new HashMap<String,String>();
+    }
+    
+    public void init() {
+        factory = (SipFactory) getServletContext().getAttribute(SIP_FACTORY);
+    }
+
+    /**
+        * Acts as a registrar and location service for REGISTER messages
+        * @param  request The SIP message received by the AS 
+        */
+    protected void doRegister(SipServletRequest request) throws ServletException,
+            IOException {
+        //Adicionar c\u00f3digo para validar o dom\u00edio
+        SipServletResponse response;
+        String to1 = request.getHeader("To");
+        log(to1);
+        String contact1 = request.getHeader("Contact");
+        log("CONTACT 1"+contact1);
+
+        String aor = getSIPuri(request.getHeader("To"));
+        String dominio = aor.split("@")[1];
+
+        log(dominio);
+        if(!dominio.equals("acme.pt")){
+            response = request.createResponse(403);
+            response.send();
+        }else{
+            String contact = getSIPuriPort(request.getHeader("Contact"));
+            log("Verificacao"+ contact);
+            //Validar se ainda n\u00e3o atingiu a expires
+            if(!contact1.split("=")[1].equals("0")){
+                RegistrarDB.put(aor, contact);
+                log("Estou aqui Registo");
+                response = request.createResponse(200);
+                response.send();
+            }else{//caso expirado
+                RegistrarDB.remove(aor, contact);
+                log("Estou aqui Deregisto");
+                response = request.createResponse(200);
+                response.send();
+            }
+        }
+        
+        // Some logs to show the content of the Registrar database.
+        log("REGISTER (myapp  - lista de terminais registrados):***");
+        Iterator<Map.Entry<String,String>> it = RegistrarDB.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<String,String> pairs = (Map.Entry<String,String>)it.next();
+                System.out.println(pairs.getKey() + " = " + pairs.getValue());
+            }
+        
+    }
+
+
+/**
+        * Acts as a registrar and location service for REGISTER messages
+        * @param  request The SIP message received by the AS 
+        */
+ 
+    protected void doMessage(SipServletRequest request) throws ServletException,
+            IOException {
+
+            String conteudo = request.getContent().toString();
+
+            log(conteudo);
+                 try{               
+
+                        String aorFrom = getSIPuri(request.getHeader("From")); //Extrair AoR do Chamado
+                        String dominio_chamador = aorFrom.split("@")[1];
+
+                        String aorTo = getSIPuri(request.getHeader("To")); //Extrair AoR do Chamador
+                        String dominio_chamado = aorTo.split("@")[1];
+
+                        String user = aorTo.substring(4, aorTo.indexOf("@"));//Obtem o username do Chamado (goFind)
+
+                        log(user);
+
+                        if(!user.equals("gofind")){//Aceitar apenas Dominio acme.pt para o chamado e para o chamador
+                        //N\u00e3o Autorizado
+                                SipServletResponse response = request.createResponse(404);
+                                response.send();
+
+                        }else{
+                             if(!dominio_chamado.equals("acme.pt") || !dominio_chamador.equals("acme.pt")) {//Aceitar apenas Dominio acme.pt para o chamado e para o chamador
+                                //N\u00e3o Autorizado
+                                SipServletResponse response= request.createResponse(403);
+                                response.send();
+                             }else{
+                                //Não é um AOr (precisa ter um @)
+
+                                String isAoR = conteudo.split("@")[1];
+
+                                if(!(isAoR.length()>0)){
+                                SipServletResponse response = request.createResponse(404);
+                                response.send();
+
+                                }else{
+                                              // Crie um novo pedido INVITE direcionado ao destino
+                                        SipServletRequest inviteRequest = request.getSession().createRequest("INVITE");
+                                        
+                                        URI toContact = factory.createURI("sip:acme.pt:5070");
+                                        inviteRequest.setRequestURI(toContact);
+
+                                        // Adicione cabeçalhos ou outros detalhes conforme necessário
+                                        // Exemplo: Adicione o cabeçalho de contato
+
+                                        //inviteRequest.addHeader("From", "sip:alice@acme.pt");
+                                        inviteRequest.addHeader("To", "sip:conf@acme.pt");
+                                        
+
+                                        // Envie o pedido INVITE
+                                        inviteRequest.send();
+
+                                     }
+
+                                 }
+
+                              }
+                        }catch (Exception e) {
+                                 e.printStackTrace();
+                                }
+                        }
+
+
+    /**
+        * Sends SIP replies to INVITE messages
+        * - 300 if registred
+        * - 404 if not registred
+        * @param  request The SIP message received by the AS 
+        */  
+    protected void doInvite(SipServletRequest request)
+                  throws ServletException, IOException {
+
+//Adicionar o c\u00f3digo para chamadas directas ente pares
+
+//Adicionar c\u00f3digo para validar o dom\u00ednio
+        SipServletResponse response;
+
+        String aorFrom = getSIPuri(request.getHeader("From")); //Extrair AoR do Chamado
+        String dominio_chamador = aorFrom.split("@")[1];
+
+        String aorTo = getSIPuri(request.getHeader("To")); //Extrair AoR do Chamador
+        String dominio_chamado = aorTo.split("@")[1];
+
+        log(dominio_chamado);
+
+        if(!dominio_chamado.equals("acme.pt") || !dominio_chamador.equals("acme.pt") ){//Aceitar apenas Dominio acme.pt para o chamado e para o chamador
+            //N\u00e3o Autorizado
+            response = request.createResponse(403);
+            response.send();
+
+        }else{//Chamada Aceite para o dominio acme.pt
+        
+        // Some logs to show the content of the Registrar database.
+        
+        log("INVITE (myapp):***Apresentar no Log os Terminais Registrados");
+
+        //Apresenta todos Clientes Resgistrados
+        Iterator<Map.Entry<String,String>> it = RegistrarDB.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<String,String> pairs = (Map.Entry<String,String>)it.next();
+                System.out.println(pairs.getKey() + " = " + pairs.getValue());
+            }
+        //String domain = aor.substring(aor.indexOf("@")+1, aor.length());
+
+        String user = aorTo.substring(4, aorTo.indexOf("@"));//Obtem o username do Chamado
+
+        log(user);
+    
+        if (dominio_chamado.equals("acme.pt") && !user.equals("conf")) { // Dominio local e n\u00e3o \u00e9 sala de confer\u00eancias
+
+            
+            if (!RegistrarDB.containsKey(aorTo)) { // Se o Chamado n\u00e3o estiver Registado retornar 404
+                
+                response = request.createResponse(404);
+                response.send();
+            } else { // Se tiver Registrado conectar a chamada directa usando um encaminhamento proxy local
+                
+
+
+                        request.getSession().setAttribute("userStatus", "COFERENCIA");
+                    
+                        String userStatus =  request.getSession().getAttribute("userStatus").toString();
+                        log(userStatus);
+
+                        Proxy proxy = request.getProxy();
+                        proxy.setRecordRoute(true);
+                        proxy.setSupervised(true);
+                        URI toContact = factory.createURI(RegistrarDB.get(aorTo));
+                        proxy.proxyTo(toContact);
+                
+                }           
+        }else{// Nos casos em que n\u00e3o \u00e9 uma chamada direta entre pares executar este bloco
+
+            if(user.equals("conf")){// Validar chamada para a sala de confer\u00eancias
+                    
+                    log("Encaminhar o Chamador para a sala de conferencias ");
+                    
+
+
+                  
+                    request.getSession().setAttribute("userStatus", "COFERENCIA");
+                    
+                    String userStatus =  request.getSession().getAttribute("userStatus").toString();
+                    log(userStatus);
+
+                    Proxy proxy = request.getProxy();
+                    //Definir o URI para o servidor de conferencias SEMs (127.0.0.1:5070)
+                    URI toContact = factory.createURI("sip:acme.pt:5070");
+                    proxy.proxyTo(toContact);
+                    
+            }
+            else {
+            Proxy proxy = request.getProxy();
+            proxy.proxyTo(request.getRequestURI());
+        }
+        }
+        
+}
+                  }
+    
+    /**
+        * Auxiliary function for extracting SPI URIs
+        * @param  uri A URI with optional extra attributes 
+        * @return SIP URI 
+        */
+    protected String getSIPuri(String uri) {
+        String f = uri.substring(uri.indexOf("<")+1, uri.indexOf(">"));
+        int indexCollon = f.indexOf(":", f.indexOf("@"));
+        if (indexCollon != -1) {
+            f = f.substring(0,indexCollon);
+        }
+        return f;
+    }
+
+    /**
+        * Auxiliary function for extracting SPI URIs
+        * @param  uri A URI with optional extra attributes 
+        * @return SIP URI and port 
+        */
+    protected String getSIPuriPort(String uri) {
+        String f = uri.substring(uri.indexOf("<")+1, uri.indexOf(">"));
+        return f;
+    }
+
+}
